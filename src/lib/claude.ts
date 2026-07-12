@@ -40,6 +40,12 @@ export async function generateCaption(params: {
   const message = await anthropic().messages.create({
     model: "claude-sonnet-5",
     max_tokens: 1200,
+    // Extended thinking is on by default for this model. We don't need it
+    // for writing ad copy, and when analyzing several photos at once its
+    // internal reasoning can consume the whole max_tokens budget before any
+    // visible text is emitted, leaving the response with no text block at
+    // all. Disabling it keeps the full budget available for the caption.
+    thinking: { type: "disabled" },
     system: `你是一位專門為 Facebook 粉絲專頁撰寫廣告貼文的社群小編。
 你會拿到${multiple ? "多張同一則貼文要用的商品或活動照片" : "一張商品或活動照片"}，以及一份「口吻範例」。這份範例通常是這個粉專真實發過的貼文，請把它當成**格式與風格的樣板**，不是只抓「大概語氣」而已。
 
@@ -81,7 +87,9 @@ export async function generateCaption(params: {
 
   const textBlock = message.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude did not return any text content");
+    throw new Error(
+      `Claude did not return any text content (stop_reason: ${message.stop_reason})`
+    );
   }
   return textBlock.text.trim();
 }
