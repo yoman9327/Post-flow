@@ -1,8 +1,28 @@
+import sharp from "sharp";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCaption, isSupportedImageType } from "@/lib/claude";
 import { publishPost, FacebookPublishError } from "@/lib/facebook";
 import { getSettings } from "@/lib/auth";
 import type { Post, TonePreset } from "@/lib/types";
+
+// Claude's own docs recommend ~1568px on the long edge (no quality benefit
+// beyond that, just more tokens/bytes), and multi-image requests cap each
+// image at 2000px on a side and 5MB — original phone photos routinely blow
+// past both, and several of them together can exceed the API's overall
+// request size limit. Downscaling before sending to Claude keeps every
+// request comfortably inside those limits regardless of how many images or
+// how large the originals are. The full-resolution originals are still what
+// gets posted to Facebook — this resize only affects the vision call.
+async function shrinkForClaude(bytes: Uint8Array): Promise<{
+  imageBase64: string;
+  mediaType: "image/jpeg";
+}> {
+  const resized = await sharp(Buffer.from(bytes))
+    .resize(1568, 1568, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 82 })
+    .toBuffer();
+  return { imageBase64: resized.toString("base64"), mediaType: "image/jpeg" };
+}
 
 const BUCKET = "post-images";
 export const MAX_IMAGES_PER_POST = 10;
@@ -86,17 +106,12 @@ async function processPost(
         const { data, error } = await db.storage.from(BUCKET).download(img.path);
         if (error || !data) throw new Error(`讀取圖片失敗：${img.path}`);
         const bytes = new Uint8Array(await data.arrayBuffer());
-        return { bytes, mimeType: img.mimeType };
+        return shrinkForClaude(bytes);
       })
     );
 
     const caption = await generateCaption({
-      images: downloaded.map((img) => ({
-        imageBase64: Buffer.from(img.bytes).toString("base64"),
-        mediaType: img.mimeType as Parameters<
-          typeof generateCaption
-        >[0]["images"][number]["mediaType"],
-      })),
+      images: downloaded,
       toneName: tone.name,
       toneExample: tone.example_text,
       restrictions: tone.restrictions,
