@@ -41,11 +41,14 @@ export async function POST(req: NextRequest) {
     await db.from("tone_presets").update({ is_default: false }).eq("is_default", true);
   }
 
+  const restrictions = typeof body?.restrictions === "string" ? body.restrictions.trim() : null;
+
   const { data, error } = await db
     .from("tone_presets")
     .insert({
       name: name.trim(),
       example_text: exampleText.trim(),
+      restrictions: restrictions || null,
       is_default: !!body?.is_default,
     })
     .select("*")

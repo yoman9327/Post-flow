@@ -10,6 +10,7 @@ export interface TonePreset {
   id: string;
   name: string;
   example_text: string;
+  restrictions: string | null;
   is_default: boolean;
   created_at: string;
 }
