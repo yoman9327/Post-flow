@@ -19,8 +19,8 @@ export type Database = {
           error_message: string | null;
           fb_post_id: string | null;
           id: string;
-          image_path: string;
-          image_url: string;
+          image_paths: string[];
+          image_urls: string[];
           published_at: string | null;
           status: string;
           tone_preset_id: string | null;
@@ -32,8 +32,8 @@ export type Database = {
           error_message?: string | null;
           fb_post_id?: string | null;
           id?: string;
-          image_path: string;
-          image_url: string;
+          image_paths?: string[];
+          image_urls?: string[];
           published_at?: string | null;
           status?: string;
           tone_preset_id?: string | null;
@@ -45,8 +45,8 @@ export type Database = {
           error_message?: string | null;
           fb_post_id?: string | null;
           id?: string;
-          image_path?: string;
-          image_url?: string;
+          image_paths?: string[];
+          image_urls?: string[];
           published_at?: string | null;
           status?: string;
           tone_preset_id?: string | null;
