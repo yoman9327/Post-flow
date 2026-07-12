@@ -22,6 +22,7 @@ export async function PATCH(
   if (typeof body.name === "string") update.name = body.name.trim();
   if (typeof body.example_text === "string") update.example_text = body.example_text.trim();
   if (typeof body.is_default === "boolean") update.is_default = body.is_default;
+  if (typeof body.restrictions === "string") update.restrictions = body.restrictions.trim() || null;
 
   if (body.is_default === true) {
     await db.from("tone_presets").update({ is_default: false }).eq("is_default", true);

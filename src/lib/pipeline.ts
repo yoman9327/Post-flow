@@ -99,6 +99,7 @@ async function processPost(
       })),
       toneName: tone.name,
       toneExample: tone.example_text,
+      restrictions: tone.restrictions,
       uploaderNote: post.uploader_label,
     });
 
