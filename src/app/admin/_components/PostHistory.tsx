@@ -73,12 +73,21 @@ export default function PostHistory() {
             key={post.id}
             className="flex gap-4 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={post.image_url}
-              alt=""
-              className="h-24 w-24 flex-shrink-0 rounded-lg object-cover"
-            />
+            <div className="flex flex-shrink-0 flex-wrap gap-1" style={{ width: "6rem" }}>
+              {post.image_urls.map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={url}
+                  alt=""
+                  className={
+                    post.image_urls.length === 1
+                      ? "h-24 w-24 rounded-lg object-cover"
+                      : "h-[2.85rem] w-[2.85rem] rounded object-cover"
+                  }
+                />
+              ))}
+            </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex items-center gap-2">
                 <span

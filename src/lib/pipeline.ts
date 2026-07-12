@@ -1,22 +1,34 @@
-import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCaption, isSupportedImageType } from "@/lib/claude";
-import { publishPhotoPost, FacebookPublishError } from "@/lib/facebook";
+import { publishPost, FacebookPublishError } from "@/lib/facebook";
 import { getSettings } from "@/lib/auth";
 import type { Post, TonePreset } from "@/lib/types";
 
 const BUCKET = "post-images";
+export const MAX_IMAGES_PER_POST = 10;
 
+/**
+ * Creates a post from images the client already uploaded directly to
+ * Supabase Storage (via a signed URL from /api/uploads/presign). We only
+ * receive lightweight paths/mime types here — never raw file bytes — since
+ * Vercel serverless functions hard-cap request bodies at 4.5MB.
+ */
 export async function createPostFromUpload(params: {
-  file: File;
+  images: { path: string; mimeType: string }[];
   tonePresetId: string;
   uploaderLabel?: string | null;
 }): Promise<Post> {
-  const { file, tonePresetId, uploaderLabel } = params;
+  const { images, tonePresetId, uploaderLabel } = params;
   const db = supabaseAdmin();
 
-  if (!isSupportedImageType(file.type)) {
-    throw new Error(`不支援的圖片格式：${file.type}`);
+  if (images.length === 0) throw new Error("請至少選擇一張圖片");
+  if (images.length > MAX_IMAGES_PER_POST) {
+    throw new Error(`一次最多上傳 ${MAX_IMAGES_PER_POST} 張圖片`);
+  }
+  for (const img of images) {
+    if (!isSupportedImageType(img.mimeType)) {
+      throw new Error(`不支援的圖片格式：${img.mimeType}`);
+    }
   }
 
   const { data: tone, error: toneError } = await db
@@ -26,23 +38,19 @@ export async function createPostFromUpload(params: {
     .single();
   if (toneError || !tone) throw new Error("找不到指定的口吻範本");
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const ext = file.type.split("/")[1] || "jpg";
-  const path = `${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
-
-  const { error: uploadError } = await db.storage
-    .from(BUCKET)
-    .upload(path, bytes, { contentType: file.type, upsert: false });
-  if (uploadError) throw new Error(`圖片上傳失敗：${uploadError.message}`);
-
-  const { data: publicUrlData } = db.storage.from(BUCKET).getPublicUrl(path);
-  const imageUrl = publicUrlData.publicUrl;
+  // Paths came from our own presign endpoint, so they're safe to trust here.
+  // If a client somehow claims a path nothing was ever uploaded to, the
+  // download in processPost below fails and the post is marked "failed".
+  const publicUrls = images.map((img) => {
+    const { data } = db.storage.from(BUCKET).getPublicUrl(img.path);
+    return data.publicUrl;
+  });
 
   const { data: post, error: insertError } = await db
     .from("posts")
     .insert({
-      image_path: path,
-      image_url: imageUrl,
+      image_paths: images.map((img) => img.path),
+      image_urls: publicUrls,
       tone_preset_id: tonePresetId,
       uploader_label: uploaderLabel || null,
       status: "generating",
@@ -54,7 +62,7 @@ export async function createPostFromUpload(params: {
   // Await the full generate+publish pipeline synchronously so it completes
   // before the serverless request ends (background "fire and forget" work
   // is not guaranteed to run to completion once the response is sent).
-  await processPost(post as Post, tone as TonePreset, bytes, file.type);
+  await processPost(post as Post, tone as TonePreset, images);
 
   const { data: finalPost } = await db
     .from("posts")
@@ -68,15 +76,27 @@ export async function createPostFromUpload(params: {
 async function processPost(
   post: Post,
   tone: TonePreset,
-  imageBytes: Uint8Array,
-  mimeType: string
+  images: { path: string; mimeType: string }[]
 ) {
   const db = supabaseAdmin();
 
   try {
+    const downloaded = await Promise.all(
+      images.map(async (img) => {
+        const { data, error } = await db.storage.from(BUCKET).download(img.path);
+        if (error || !data) throw new Error(`讀取圖片失敗：${img.path}`);
+        const bytes = new Uint8Array(await data.arrayBuffer());
+        return { bytes, mimeType: img.mimeType };
+      })
+    );
+
     const caption = await generateCaption({
-      imageBase64: Buffer.from(imageBytes).toString("base64"),
-      mediaType: mimeType as Parameters<typeof generateCaption>[0]["mediaType"],
+      images: downloaded.map((img) => ({
+        imageBase64: Buffer.from(img.bytes).toString("base64"),
+        mediaType: img.mimeType as Parameters<
+          typeof generateCaption
+        >[0]["images"][number]["mediaType"],
+      })),
       toneName: tone.name,
       toneExample: tone.example_text,
       uploaderNote: post.uploader_label,
@@ -128,10 +148,10 @@ export async function publishGeneratedPost(postId: string) {
   await db.from("posts").update({ status: "publishing" }).eq("id", postId);
 
   try {
-    const { postId: fbPostId } = await publishPhotoPost({
+    const { postId: fbPostId } = await publishPost({
       pageId: settings.fb_page_id,
       accessToken: settings.fb_page_access_token,
-      imageUrl: post.image_url,
+      imageUrls: post.image_urls,
       caption: post.caption,
     });
 

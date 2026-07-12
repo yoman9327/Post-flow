@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/api-guard";
 import { hasSession } from "@/lib/auth";
-import { createPostFromUpload } from "@/lib/pipeline";
+import { createPostFromUpload, MAX_IMAGES_PER_POST } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB, Facebook's own limit is similar
 
 export async function POST(req: NextRequest) {
   // Either an authenticated uploader or a logged-in admin may submit a post.
@@ -14,20 +12,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "未授權，請先登入" }, { status: 401 });
   }
 
-  const form = await req.formData().catch(() => null);
-  if (!form) {
-    return NextResponse.json({ error: "無效的表單資料" }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body) {
+    return NextResponse.json({ error: "無效的請求內容" }, { status: 400 });
   }
 
-  const file = form.get("image");
-  const tonePresetId = form.get("tonePresetId");
-  const uploaderLabel = form.get("uploaderLabel");
+  const images = body.images;
+  const tonePresetId = body.tonePresetId;
+  const uploaderLabel = body.uploaderLabel;
 
-  if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ error: "請選擇一張圖片" }, { status: 400 });
+  if (!Array.isArray(images) || images.length === 0) {
+    return NextResponse.json({ error: "請選擇至少一張圖片" }, { status: 400 });
   }
-  if (file.size > MAX_FILE_BYTES) {
-    return NextResponse.json({ error: "圖片檔案過大，請小於 10MB" }, { status: 400 });
+  if (images.length > MAX_IMAGES_PER_POST) {
+    return NextResponse.json(
+      { error: `一次最多上傳 ${MAX_IMAGES_PER_POST} 張圖片` },
+      { status: 400 }
+    );
+  }
+  const validImages = images.every(
+    (img) =>
+      img && typeof img.path === "string" && img.path && typeof img.mimeType === "string"
+  );
+  if (!validImages) {
+    return NextResponse.json({ error: "圖片資訊格式錯誤" }, { status: 400 });
   }
   if (typeof tonePresetId !== "string" || !tonePresetId) {
     return NextResponse.json({ error: "請選擇口吻範本" }, { status: 400 });
@@ -35,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const post = await createPostFromUpload({
-      file,
+      images,
       tonePresetId,
       uploaderLabel: typeof uploaderLabel === "string" ? uploaderLabel : null,
     });

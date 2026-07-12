@@ -16,8 +16,8 @@ export interface TonePreset {
 
 export interface Post {
   id: string;
-  image_path: string;
-  image_url: string;
+  image_paths: string[];
+  image_urls: string[];
   tone_preset_id: string | null;
   caption: string | null;
   status: PostStatus;
